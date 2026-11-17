@@ -37,6 +37,7 @@ async function doLogin(){const u=$('#lu').value,p=$('#lp').value;if(Date.now()<l
 if(!USERS[u]||await sha('magidigi:'+p)!==PWH){if(++fails>=5){lock=Date.now()+30000;fails=0}$('#lp').value='';return $('#le').textContent='Wrong name or password.'}
 fails=0;LSX.mg_sess=JSON.stringify({u,exp:Date.now()+7*864e5});enter(u)}
 function enter(u){LSX.mg_who=u;$('#role').value=USERS[u];$('#lg').classList.remove('on');$('#lp').value='';$('#who').textContent=u+(USERS[u]==='a'?' (admin)':' (field)');load()}
+setInterval(async()=>{if(!CFG.url||SAVING||document.hidden||!REV)return;if(['#mb','#lg','#lb'].some(k=>$(k).classList.contains('on')))return;try{const r=await fetch(CFG.url+'/rest/v1/app_state?id=eq.1&select=updated_at',{headers:hdr()});if(!r.ok)return;const j=await r.json();if(j[0]&&j[0].updated_at!==REV){const r2=await fetch(CFG.url+'/rest/v1/app_state?id=eq.1&select=data,updated_at',{headers:hdr()});if(!r2.ok)return;const k=await r2.json();if(k[0]&&!['#mb','#lg','#lb'].some(q=>$(q).classList.contains('on'))){S=k[0].data;REV=k[0].updated_at;LSX.mg_state=JSON.stringify(S);render();$('#sync').textContent='updated '+hm()}}}catch(e){}},15000);
 function logout(){LSX.removeItem('mg_sess');$('#lp').value='';$('#le').textContent='';showLogin()}
 function boot(){try{const x=JSON.parse(LSX.mg_sess||'null');if(x&&x.exp>Date.now()&&USERS[x.u])return enter(x.u)}catch(e){}showLogin()}
 const CAT={FLR:'Flooring',FUR:'Furniture',EQP:'Electronics',ACC:'Accessories',CON:'Consumables',ELC:'Electrical',JAE:'Flooring'},BR={Z:'Zeekr',U:'Universal',J:'Jaecoo'},TY={S:'Serialized',R:'Reusable',C:'Consumable'};
@@ -105,7 +106,8 @@ deps:[{id:'DEP-2026-001',site:'Castle Towers (Old Site - V3 Upgrade)',brand:'Zee
 {id:'DEP-2026-004',site:'Macquarie Centre (Jaecoo Bump-In)',brand:'Jaecoo',start:'2026-11-15',end:'2026-12-18',status:'Live',zone:'z1',crew:'Mark + Crew 2',lines:[],photos:['seed']},
 {id:'DEP-2026-005',site:'Westfield Parramatta (Planned)',brand:'Zeekr',start:'2026-12-28',end:'2027-01-25',status:'Reserved',zone:'z1',crew:'TBD',lines:mk('FLR-V3P-TLG:150,FUR-POS-V3PS:1,EQP-TOT-LED:1').map(l=>({sku:l.sku,qty:l.qty})),photos:[]}],
 audit:[],v:2});
-let S=DEF(),tab='forecast',K=[],CFG=JSON.parse(LSX.mg_cfg||'{}');
+const SB={url:'https://tgevqxudxzcuwzqzpflt.supabase.co',key:'sb_publishable_IZLPjorPcLt2QA1AHmmeaA_YQRIj3YE'};
+let S=DEF(),tab='forecast',K=[],CFG=(()=>{let c={};try{c=JSON.parse(LSX.mg_cfg||'{}')}catch(e){}return{url:c.url||SB.url,key:c.key||SB.key}})();
 const A=()=>$('#role').value==='a',it=s=>S.items.find(i=>i.sku===s),zn=id=>(S.zones.find(z=>z.id===id)||{}).name||id;
 const onh=i=>Object.values(i.loc).reduce((a,b)=>a+b,0),OUT=['Dispatched','Live'];
 const Z=id=>'z:'+id,SD=id=>'s:'+id,newId=()=>'DEP-'+new Date().getFullYear()+'-'+String(Math.max(0,...S.deps.map(d=>+d.id.split('-').pop()||0))+1).padStart(3,'0');
@@ -125,10 +127,15 @@ const avail=(sku,D,ex)=>Object.values(proj(sku,D,ex)).reduce((a,b)=>a+b,0);
 function conflicts(dep){const ds=new Set([dep.start]);S.deps.forEach(d=>{[d.start,d.end].forEach(x=>{if(x>dep.start&&x<dep.end)ds.add(x)})});const bad=[];
 dep.lines.forEach(l=>{const i=it(l.sku);if(i.type==='Consumable')return;let w=1e9,wd;ds.forEach(D=>{const a=avail(l.sku,D,dep.id);if(a<w){w=a;wd=D}});if(w<l.qty)bad.push(`${i.name}: need ${l.qty}, only ${w} on ${wd}`)});return bad}
 function log(a,d){S.audit.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),st:'Pending',ts:new Date().toISOString().slice(0,16).replace('T',' '),u:(LSX.mg_who||'?')+(A()?' (admin)':' (field)'),a,d})}
-async function save(){LSX.mg_state=JSON.stringify(S);if(!CFG.url)return $('#sync').textContent='local only';try{const r=await fetch(CFG.url+'/rest/v1/app_state',{method:'POST',headers:{apikey:CFG.key,Authorization:'Bearer '+CFG.key,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({id:1,data:S})});$('#sync').textContent=r.ok?'synced':'SYNC FAILED'}catch(e){$('#sync').textContent='SYNC FAILED'}}
-async function load(){if(LSX.mg_state)S=JSON.parse(LSX.mg_state);if(CFG.url)try{const r=await fetch(CFG.url+'/rest/v1/app_state?id=eq.1&select=data',{headers:{apikey:CFG.key,Authorization:'Bearer '+CFG.key}});const j=await r.json();if(j[0])S=j[0].data;$('#sync').textContent='synced'}catch(e){$('#sync').textContent='offline'}
+let REV=null,SAVING=false,EMPTY=false;
+const hdr=x=>Object.assign({apikey:CFG.key},CFG.key.startsWith('sb_')?{}:{Authorization:'Bearer '+CFG.key},x||{});
+const hm=()=>new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+async function syncFail(r){let t='';try{t=await r.text()}catch(e){}$('#sync').textContent=r.status===404||/PGRST205|PGRST204|does not exist/.test(t)?'TABLE MISSING: run the setup SQL in Supabase':r.status===401||r.status===403?'KEY REJECTED ('+r.status+')':'SYNC FAILED ('+r.status+')'}
+async function save(){LSX.mg_state=JSON.stringify(S);if(!CFG.url)return $('#sync').textContent='local only';SAVING=true;try{const r=await fetch(CFG.url+'/rest/v1/app_state?on_conflict=id',{method:'POST',headers:hdr({'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=representation'}),body:JSON.stringify({id:1,data:S})});if(r.ok){const j=await r.json();REV=j[0]&&j[0].updated_at||REV;$('#sync').textContent='synced '+hm()}else await syncFail(r)}catch(e){$('#sync').textContent='OFFLINE: changes not shared yet'}SAVING=false}
+async function load(){try{if(LSX.mg_state)S=JSON.parse(LSX.mg_state)}catch(e){}
+if(CFG.url)try{const r=await fetch(CFG.url+'/rest/v1/app_state?id=eq.1&select=data,updated_at',{headers:hdr()});if(r.ok){const j=await r.json();if(j[0]){S=j[0].data;REV=j[0].updated_at}else EMPTY=true;$('#sync').textContent='synced '+hm()}else await syncFail(r)}catch(e){$('#sync').textContent='OFFLINE: showing this device only'}
 if(!S.v||!S.mv){const D=DEF();D.items.forEach(x=>{if(!S.items.find(i=>i.sku===x.sku))S.items.push(x)});S.v=2}
-if(!S.mv)opening();S.audit.forEach(a=>{if(!a.id)a.id=Math.random().toString(36).slice(2)});
+if(!S.mv)opening();S.audit.forEach(a=>{if(!a.id)a.id=Math.random().toString(36).slice(2)});if(EMPTY){EMPTY=false;save()}
 if(!LSX.mg_who)LSX.mg_who='Unknown';render()}
 const M=x=>{$('#m').innerHTML=x;$('#mb').classList.add('on')},X=()=>$('#mb').classList.remove('on'),done=()=>{X();save();render()};
 const sel=(id,opts,v)=>`<select id="${id}">${opts.map(o=>`<option value="${h(o[0])}" ${o[0]==v?'selected':''}>${h(o[1])}</option>`).join('')}</select>`;
