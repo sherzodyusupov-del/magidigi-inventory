@@ -215,5 +215,87 @@ function xferM(){M(`<h3>Move stock between zones</h3><div class="g2"><label>Item
 function doX(){const i=it($('#xi').value),f=$('#xf').value,t=$('#xt').value,q=+$('#xq').value;if(f===t||q<1||(i.loc[f]||0)<q)return say('Check zones and quantity (only '+(i.loc[f]||0)+' in source).');i.loc[f]-=q;i.loc[t]=(i.loc[t]||0)+q;mv(i.sku,q,Z(f),Z(t),'','transfer');log('Stock moved',`${q}× ${i.name}: ${zn(f)} → ${zn(t)}`);done()}
 boot();
 </script>
+
+<!-- AI Chat Widget -->
+<style>
+#ai-btn{position:fixed;bottom:20px;right:20px;width:54px;height:54px;border-radius:50%;background:var(--t);color:#fff;border:0;font-size:24px;cursor:pointer;box-shadow:0 4px 16px #0004;z-index:200;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+#ai-btn:hover{transform:scale(1.08)}
+#ai-panel{position:fixed;bottom:84px;right:20px;width:340px;max-height:500px;background:#fff;border:1px solid var(--b);border-radius:14px;box-shadow:0 8px 32px #0003;z-index:200;display:none;flex-direction:column;overflow:hidden}
+#ai-panel.on{display:flex}
+#ai-head{background:var(--n);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600}
+#ai-head button{background:0;border:0;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:0 2px}
+#ai-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.aim{max-width:88%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.aim.u{background:var(--t);color:#fff;align-self:flex-end;border-bottom-right-radius:3px}
+.aim.a{background:#f1f5f9;color:var(--n);align-self:flex-start;border-bottom-left-radius:3px}
+#ai-typing{font-size:12px;color:var(--m);padding:4px 14px;display:none}
+#ai-foot{display:flex;gap:6px;padding:10px;border-top:1px solid var(--b)}
+#ai-inp{flex:1;border-radius:8px;padding:8px 10px;font-size:13px;border:1px solid var(--b);resize:none;height:36px;min-height:36px;overflow:hidden}
+#ai-send{background:var(--t);color:#fff;border:0;border-radius:8px;padding:0 14px;font-weight:600;cursor:pointer;white-space:nowrap}
+#ai-send:disabled{opacity:.5;cursor:default}
+</style>
+
+<button id="ai-btn" onclick="aiToggle()" title="Ask AI Assistant">💬</button>
+<div id="ai-panel">
+  <div id="ai-head">
+    <span>🤖 Magidigi Assistant</span>
+    <button onclick="aiToggle()">×</button>
+  </div>
+  <div id="ai-msgs">
+    <div class="aim a">Hi! I'm your Magidigi inventory assistant. Ask me how to use the app or anything about the current stock and deployments.</div>
+  </div>
+  <div id="ai-typing">Thinking…</div>
+  <div id="ai-foot">
+    <textarea id="ai-inp" placeholder="Ask a question…" onkeydown="aiKey(event)"></textarea>
+    <button id="ai-send" onclick="aiSend()">Send</button>
+  </div>
+</div>
+
+<script>
+var aiHistory=[];
+function aiToggle(){document.getElementById('ai-panel').classList.toggle('on')}
+function aiKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();aiSend()}}
+function aiAddMsg(text,role){
+  var msgs=document.getElementById('ai-msgs');
+  var d=document.createElement('div');
+  d.className='aim '+role;
+  d.textContent=text;
+  msgs.appendChild(d);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+async function aiSend(){
+  var inp=document.getElementById('ai-inp');
+  var send=document.getElementById('ai-send');
+  var msg=inp.value.trim();
+  if(!msg||send.disabled)return;
+  inp.value='';
+  aiAddMsg(msg,'u');
+  aiHistory.push({role:'user',content:msg});
+  send.disabled=true;
+  document.getElementById('ai-typing').style.display='block';
+  var ctx=JSON.stringify({
+    zones:S.zones.map(function(z){return{id:z.id,name:z.name}}),
+    items:S.items.map(function(i){return{sku:i.sku,name:i.name,type:i.type,brand:i.brand,gen:i.gen,min:i.min,locations:i.loc,pendingDamage:i.pend||0}}),
+    deployments:S.deps.map(function(d){return{id:d.id,site:d.site,brand:d.brand,start:d.start,end:d.end,status:d.status,crew:d.crew,itemLines:d.lines.length}})
+  },null,2);
+  try{
+    var res=await fetch('/.netlify/functions/chat',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({messages:aiHistory.slice(-10),context:ctx})
+    });
+    var data=await res.json();
+    var reply=data.reply||'Sorry, I could not get a response.';
+    aiHistory.push({role:'assistant',content:reply});
+    aiAddMsg(reply,'a');
+  }catch(e){
+    var err='Connection error. Please try again.';
+    aiHistory.push({role:'assistant',content:err});
+    aiAddMsg(err,'a');
+  }
+  send.disabled=false;
+  document.getElementById('ai-typing').style.display='none';
+}
+</script>
 </body>
 </html>
